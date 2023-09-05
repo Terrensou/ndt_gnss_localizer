@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(ndt_localizer)
 
 set(CMAKE_CXX_STANDARD 11)
-
+find_package(Eigen3 REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
         roscpp
         tf2
@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
         pcl_conversions
         pcl_ros
         message_generation
+        std_srvs
         )
 
 generate_messages(
@@ -59,5 +60,11 @@ target_link_libraries(voxel_grid_filter ${catkin_LIBRARIES})
 add_executable(map_loader nodes/map_loader.cpp)
 target_link_libraries(map_loader ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
+add_executable(map_gnss_loader nodes/map_gnss_loader.cpp include/gnssTools.hpp)
+target_link_libraries(map_gnss_loader ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
 add_executable(ndt_localizer_node nodes/ndt.cpp)
 target_link_libraries(ndt_localizer_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+add_executable(ndt_gnss_localizer_node nodes/gnss_ndt.cpp include/gnssTools.hpp)
+target_link_libraries(ndt_gnss_localizer_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})

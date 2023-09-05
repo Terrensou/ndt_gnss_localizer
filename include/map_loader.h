@@ -8,14 +8,22 @@
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/NavSatFix.h>
 #include <vector>
 #include <pcl_ros/transforms.h>
+#include "gnssTools.hpp"
 
 class MapLoader{
 public:
+    GNSSTools gnssTools;
 
     ros::Publisher pc_map_pub_;
+    ros::Publisher lla_map_pub_;
     std::vector<std::string> file_list_;
+    std::string map_lla_file;
+    Eigen::Vector3d map_lla_vector;
+
+    sensor_msgs::NavSatFix map_lla_msg;
 
     MapLoader(ros::NodeHandle &nh);
 

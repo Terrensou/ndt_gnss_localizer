@@ -14,6 +14,11 @@ A demo video on MulRan dataset:
 
 ## How to use
 
+### SAve Path
+rosservice call /ndt_localizer/reset_gnss_init
+rosservice call /ndt_localizer/save_odom_path
+
+
 ### Prepare you pcd map and rosbag
 
 You can reproduce my blog [基于NDT的自动驾驶高精度定位和ROS项目实战](https://blog.csdn.net/AdamShan/article/details/106739856?spm=1001.2014.3001.5501) and [使用SC-LEGO-LOAM进行较大规模点云地图构建和闭环优化](https://blog.csdn.net/AdamShan/article/details/106589633?spm=1001.2014.3001.5501) to use Mulran dataset to build your pcd map and produce the pointcloud data. Unfortunately, the blog is written with Chinese, if you can not read Chinese blog and want to reproduce the project demo, use the link below(Baidu disk) to download the pcd map and rosbag:

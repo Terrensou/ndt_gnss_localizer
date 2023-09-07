@@ -3,6 +3,7 @@ project(ndt_localizer)
 
 set(CMAKE_CXX_STANDARD 11)
 find_package(Eigen3 REQUIRED)
+find_package(libxml2 QUIET)
 find_package(catkin REQUIRED COMPONENTS
         roscpp
         tf2

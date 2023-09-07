@@ -12,6 +12,7 @@
   <arg name="output_pose_with_covariance_topic" default="ndt_pose_with_covariance" doc="Estimated self position with covariance" />
   <arg name="output_diagnostics_topic" default="diagnostics" doc="Diagnostic topic" />
   <arg name="save_path_dir" default="$(find ndt_localizer)/path/" />
+  <arg name="kml_config_file" default="$(find ndt_localizer)/cfgs/kml_config.xml" />
 
   <include file="$(find ndt_localizer)/launch/static_gnss_tf.launch" />
   <include file="$(find ndt_localizer)/launch/map_gnss_loader.launch" />
@@ -47,6 +48,7 @@
     <param name="max_iterations" value="$(arg max_iterations)" />
     <param name="converged_param_transform_probability" value="$(arg converged_param_transform_probability)" />
     <param name="save_path_dir" value="$(arg save_path_dir)" />
+    <param name="kml_config_file" value="$(arg kml_config_file)" />
   </node>
 
 <!--  <include file="$(find ndt_localizer)/launch/lexus.launch" />-->

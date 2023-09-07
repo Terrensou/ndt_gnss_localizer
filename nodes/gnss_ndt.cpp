@@ -20,20 +20,23 @@ NdtLocalizer::NdtLocalizer(ros::NodeHandle &nh, ros::NodeHandle &private_nh) : n
     iteration_num_pub_ = nh_.advertise<std_msgs::Float32>("iteration_num", 10);
     diagnostics_pub_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("diagnostics", 10);
     odom_pub_ = nh_.advertise<nav_msgs::Odometry>("/ndt_localizer/Odom", 10);
-    path_enu_pub_ = nh_.advertise<nav_msgs::Path>("/integrated_nav/Path_ENU", 10, true);
-    navsatfix_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/integrated_nav/Navsatfix", 10, true);
+    path_enu_pub_ = nh_.advertise<nav_msgs::Path>("/ndt_localizer/Path_ENU", 10, true);
+    gnss_path_enu_pub_ = nh_.advertise<nav_msgs::Path>("/ndt_localizer/Path_GNSS_ENU", 10, true);
+    navsatfix_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/ndt_localizer/Navsatfix", 10, true);
+    gnss_initial_pose_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("initialpose", 10, true);
 
     // Subscribers
-    initial_pose_sub_ = nh_.subscribe("initialpose", 100, &NdtLocalizer::callback_init_pose, this);
-    map_points_sub_ = nh_.subscribe("/ndt_localizer/points_map", 1, &NdtLocalizer::callback_pointsmap, this);
-    map_lla_sub_ = nh_.subscribe("/ndt_localizer/map_lla", 1, &NdtLocalizer::callback_maplla, this);
-    sensor_points_sub_ = nh_.subscribe("filtered_points", 1, &NdtLocalizer::callback_pointcloud, this);
+    initial_pose_sub_ = nh_.subscribe("initialpose", 100, &NdtLocalizer::callback_init_pose, this, ros::TransportHints().tcpNoDelay());
+    map_points_sub_ = nh_.subscribe("/ndt_localizer/points_map", 1, &NdtLocalizer::callback_pointsmap, this, ros::TransportHints().tcpNoDelay());
+    map_lla_sub_ = nh_.subscribe("/ndt_localizer/map_lla", 1, &NdtLocalizer::callback_maplla, this, ros::TransportHints().tcpNoDelay());
+    sensor_points_sub_ = nh_.subscribe("filtered_points", 1, &NdtLocalizer::callback_pointcloud, this, ros::TransportHints().tcpNoDelay());
+    gnss_navsat_sub_ = nh_.subscribe(GNSS_TOPIC, 1, &NdtLocalizer::callback_gnss, this, ros::TransportHints().tcpNoDelay());
 
     // Services
     reset_gnss_init_pose_srv_ = nh.advertiseService("ndt_localizer/reset_gnss_init",
                                                     &NdtLocalizer::reset_gnss_init_pose, this);
-    save_path = nh.advertiseService("ndt_localizer/save_odom_path",
-                                                    &NdtLocalizer::save_path2tum, this);
+    save_path_srv_ = nh.advertiseService("ndt_localizer/save_odom_path",
+                                                    &NdtLocalizer::save_path, this);
 
     imu_sub_.subscribe(nh, IMU_TOPIC, 100, ros::TransportHints().tcpNoDelay());
     gnss_sub_.subscribe(nh, GNSS_TOPIC, 100, ros::TransportHints().tcpNoDelay());
@@ -46,6 +49,9 @@ NdtLocalizer::NdtLocalizer(ros::NodeHandle &nh, ros::NodeHandle &private_nh) : n
     diagnostic_thread_.detach();
 
     odom_path.header.frame_id = map_frame_;
+    gnss_path.header.frame_id = map_frame_;
+
+    readKMLParameter();
 }
 
 NdtLocalizer::~NdtLocalizer() {}
@@ -100,6 +106,38 @@ bool NdtLocalizer::reset_gnss_init_pose(std_srvs::Empty::Request &req,
     return true;
 }
 
+void NdtLocalizer::callback_gnss(const sensor_msgs::NavSatFix::ConstPtr & navsatfix_msg_ptr) {
+    if (!init_pose) {
+        return;
+    }
+
+    geometry_msgs::PoseStamped gnss_pose_stamped_msg;
+    gnss_pose_stamped_msg.header.stamp = navsatfix_msg_ptr->header.stamp;
+    gnss_pose_stamped_msg.header.frame_id = map_frame_;
+
+    Eigen::Vector3d lla;
+    lla.setIdentity();
+    lla = Eigen::Vector3d(navsatfix_msg_ptr->latitude,
+                          navsatfix_msg_ptr->longitude,
+                          navsatfix_msg_ptr->altitude);
+    Eigen::Vector3d ecef = gnssTools.LLA2ECEF(lla);
+    Eigen::Vector3d enu = gnssTools.ECEF2ENU(ecef);
+
+    gnss_lla_vec.push_back(lla);
+
+    gnss_pose_stamped_msg.pose.position.x = enu(0);
+    gnss_pose_stamped_msg.pose.position.y = enu(1);
+    gnss_pose_stamped_msg.pose.position.z = enu(2);
+    gnss_pose_stamped_msg.pose.orientation.x = 0;
+    gnss_pose_stamped_msg.pose.orientation.y = 0;
+    gnss_pose_stamped_msg.pose.orientation.z = 0;
+    gnss_pose_stamped_msg.pose.orientation.w = 0;
+
+    gnss_path.poses.push_back(gnss_pose_stamped_msg);
+    gnss_path_enu_pub_.publish(gnss_path);
+
+}
+
 void NdtLocalizer::callback_gnss_init_pose(
         const sensor_msgs::NavSatFix::ConstPtr &msgNavsatFix_in, const sensor_msgs::Imu::ConstPtr &msgIMU_in,
         const sensor_msgs::PointCloud2::ConstPtr &msgPoints_in) {
@@ -131,15 +169,22 @@ void NdtLocalizer::callback_gnss_init_pose(
         tf::quaternionMsgToTF(mapTF_imu_pose_msg_ptr->pose.pose.orientation, origin_orientation);
         tf::Matrix3x3(origin_orientation).getRPY(roll, pitch, yaw);
 
-        auto filted_orientation = tf::createQuaternionFromRPY(0, 0, yaw + 1.57079);
+        auto filted_orientation = tf::createQuaternionFromRPY(0, 0, -yaw + 1.57079);
         tf::quaternionTFToMsg(filted_orientation, initial_pose_cov_msg_.pose.pose.orientation);
         tf::Matrix3x3(filted_orientation).getRPY(roll, pitch, yaw);
         std::cout << "GNSS init east:" << initial_pose_cov_msg_.pose.pose.position.x << ", north:"
                   << initial_pose_cov_msg_.pose.pose.position.y << ", up:" << initial_pose_cov_msg_.pose.pose.position.z
-                  << ", roll:" << roll << ", pitch:" << pitch << ", yaw:" << yaw - 1.57079 << std::endl;
+                  << ", roll:" << roll << ", pitch:" << pitch << ", yaw:" << -yaw + 1.57079 << std::endl;
 
         gnss_pose = true;
-        init_pose = false;
+//        init_pose = false;
+        geometry_msgs::PoseWithCovarianceStamped gnss_initial_pose_msg;
+        gnss_initial_pose_msg.header.frame_id = map_frame_;
+        gnss_initial_pose_msg.header.stamp = msgNavsatFix_in->header.stamp;
+        gnss_initial_pose_msg.pose = initial_pose_cov_msg_.pose;
+
+        gnss_initial_pose_pub_.publish(gnss_initial_pose_msg);
+
     }
 }
 
@@ -168,7 +213,7 @@ void NdtLocalizer::callback_init_pose(
     tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
     std::cout << "Manual init x:" << initial_pose_cov_msg_.pose.pose.position.x << ", y:"
               << initial_pose_cov_msg_.pose.pose.position.y << ", z:" << initial_pose_cov_msg_.pose.pose.position.z
-              << ", roll:" << roll << ", pitch:" << pitch << ", yaw:" << yaw - 1.57079 << std::endl;
+              << ", roll:" << roll << ", pitch:" << pitch << ", yaw:" << -yaw + 1.57079 << std::endl;
 }
 
 void NdtLocalizer::callback_pointsmap(
@@ -272,7 +317,7 @@ void NdtLocalizer::callback_pointcloud(
         const geometry_msgs::Pose init_pose_msg = tf2::toMsg(initial_pose_affine);
         ROS_WARN("Lidar Odom init position: east: %f, north: %f, up: %f, roll:%f, pitch:%f, yaw:%f.",
                  init_pose_msg.position.x, init_pose_msg.position.y, init_pose_msg.position.z, roll, pitch,
-                 yaw - 1.57079);
+                 -yaw + 1.57079);
 
 
         //use the outcome of ndt as the initial guess for ICP
@@ -292,7 +337,8 @@ void NdtLocalizer::callback_pointcloud(
         // which means, the delta trans for the second time is 0
         pre_trans = initial_pose_matrix;
         delta_trans.setIdentity();
-        odom_path.poses.clear();
+//        odom_path.poses.clear();
+//        gnss_path.poses.clear();
 
         init_pose = true;
 
@@ -356,6 +402,10 @@ void NdtLocalizer::callback_pointcloud(
     if (is_converged) {
         ndt_pose_pub_.publish(result_pose_stamped_msg);
     }
+    if (!is_converged && init_pose && gnss_pose && skipping_publish_num > 10) {
+        init_pose = false;
+        gnss_pose = false;
+    }
 
     // publish tf(map frame to base frame)
     publish_tf(map_frame_, base_frame_, result_pose_stamped_msg);
@@ -403,7 +453,7 @@ void NdtLocalizer::callback_pointcloud(
     tf::Matrix3x3(align_orientation).getRPY(roll, pitch, yaw);
     ROS_INFO("Lidar Odom current position: east: %f, north: %f, up: %f, roll:%f, pitch:%f, yaw:%f.",
              result_pose_stamped_msg.pose.position.x, result_pose_stamped_msg.pose.position.y,
-             result_pose_stamped_msg.pose.position.z, roll, pitch, yaw - 1.57079);
+             result_pose_stamped_msg.pose.position.z, roll, pitch, -yaw + 1.57079);
 
     publish_navsatfix(result_pose_stamped_msg, is_converged);
 }
@@ -423,6 +473,7 @@ void NdtLocalizer::init_params() {
     private_nh_.getParam("resolution", resolution);
     private_nh_.getParam("max_iterations", max_iterations);
     private_nh_.getParam("save_path_dir", save_path_dir_);
+    private_nh_.getParam("kml_config_file", kml_config_file_);
 
     map_frame_ = "map";
 
@@ -556,6 +607,8 @@ void NdtLocalizer::publish_navsatfix(
     Eigen::Vector3d ecef = gnssTools.ENU2ECEF(enu);
     Eigen::Vector3d lla = gnssTools.ECEF2LLA(ecef);
 
+    odom_lla_vec.push_back(lla);
+
     ROS_INFO("Lidar Odom current LLA position: lat: %f, lon: %f, alt: %f.", lla(0), lla(1), lla(2));
 
     sensor_msgs::NavSatFix msg_out;
@@ -577,16 +630,34 @@ void NdtLocalizer::publish_navsatfix(
     navsatfix_pub_.publish(msg_out);
 }
 
-bool NdtLocalizer::save_path2tum(std_srvs::Empty::Request &req,
-                   std_srvs::Empty::Response &res){
+bool NdtLocalizer::save_path(std_srvs::Empty::Request &req,
+                                 std_srvs::Empty::Response &res) {
+
     auto save_dir = boost::filesystem::path(save_path_dir_);
-    if (boost::filesystem::exists(save_dir)) {
+    if (!boost::filesystem::exists(save_dir)) {
+        boost::filesystem::create_directories(save_dir);
+    }
+    auto time_now = std::to_string(ros::Time::now().toSec());
+
+    auto file_dir = save_dir.c_str()+time_now+"/";
+    boost::filesystem::create_directory(file_dir);
+
+    save_path2tum(file_dir);
+    save_path2kml(file_dir);
+}
+
+
+bool NdtLocalizer::save_path2tum(const std::string save_dir_str){
+    auto save_dir = boost::filesystem::path(save_dir_str);
+    if (!boost::filesystem::exists(save_dir)) {
         boost::filesystem::create_directories(save_dir);
     }
 
     std::ofstream fout;
-    fout.open(save_path_dir_+std::to_string(ros::Time::now().toSec()));
-    if (odom_path.poses.size() > 0) {
+
+    fout.open(save_dir_str + "ndt_tum.txt");
+    if (odom_path.poses.size() > 0 && fout.is_open()) {
+        fout.precision(15);
         for (auto i = odom_path.poses.cbegin(); i!=odom_path.poses.cend(); ++i) {
             fout << i->header.stamp.toSec() << " ";
             auto x = i->pose.position.x;
@@ -598,13 +669,191 @@ bool NdtLocalizer::save_path2tum(std_srvs::Empty::Request &req,
             auto qw = i->pose.orientation.w;
             fout << x << " " << y << " " << z << " " << qx << " " << qy << " " << qz << " " << qw << std::endl;
         }
+        fout.close();
     } else {
         ROS_WARN("Lidar Path is Empty!");
         return false;
     }
 
+    fout.open(save_dir_str + "gnss_enu_tum.txt");
+    if (gnss_path.poses.size() > 0 && fout.is_open()) {
+        fout.precision(15);
+        for (auto i = gnss_path.poses.cbegin(); i!=gnss_path.poses.cend(); ++i) {
+            fout << i->header.stamp.toSec() << " ";
+            auto x = i->pose.position.x;
+            auto y = i->pose.position.y;
+            auto z = i->pose.position.z;
+            auto qx = i->pose.orientation.x;
+            auto qy = i->pose.orientation.y;
+            auto qz = i->pose.orientation.z;
+            auto qw = i->pose.orientation.w;
+            fout << x << " " << y << " " << z << " " << qx << " " << qy << " " << qz << " " << qw << std::endl;
+        }
+        fout.close();
+    } else {
+        ROS_WARN("GNSS Path is Empty!");
+    }
+
+
     ROS_INFO("Save Lidar Localization Path Successful.");
     return true;
+}
+
+bool NdtLocalizer::save_path2kml(const std::string save_dir_str) {
+
+    // longitude, latitude, height
+    auto save_dir = boost::filesystem::path(save_dir_str);
+    if (!boost::filesystem::exists(save_dir)) {
+        boost::filesystem::create_directories(save_dir);
+    }
+
+    std::ofstream fout;
+    fout.open(save_dir_str + "ndt_odom_trajectry.kml");
+    if (odom_lla_vec.size() > 0 && fout.is_open()) {
+
+        fout.precision(15);
+        int index = 0;
+        fout << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" << std::endl;
+        fout << "<kml xmlns=\"http://www.opengis.net/kml/2.2\">" << std::endl;
+        fout << "<Document>" << std::endl;
+        fout << "<name>"
+              << "GPS Trajectory"
+              << "</name>" << std::endl;
+        fout << "<description>"
+              << "GPS Trajectory"
+              << "</description>" << std::endl;
+
+        fout << "<Style id=\"" << kml_config_parameter[index++] << "\">" << std::endl;
+        fout << "<LineStyle>" << std::endl;
+        fout << "<color>"
+              << "7fFF00FF"
+              << "</color>" << std::endl;
+        fout << "<width>" << kml_config_parameter[index++] << "</width>" << std::endl;
+        fout << "</LineStyle>" << std::endl;
+        fout << "<PolyStyle>" << std::endl;
+        fout << "<color>"
+              << "7fFF00FF"
+              << "</color>" << std::endl;
+        fout << "</PolyStyle>" << std::endl;
+        fout << "</Style>" << std::endl;
+        fout << "<Placemark>" << std::endl;
+        fout << "<styleUrl>" << kml_config_parameter[index++] << "</styleUrl>" << std::endl;
+        fout << "<LineString>" << std::endl;
+        fout << "<extrude>" << kml_config_parameter[index++] << "</extrude>" << std::endl;
+        fout << "<tessellate>" << kml_config_parameter[index++] << "</tessellate>"
+              << std::endl;
+        fout << "<altitudeMode>" << kml_config_parameter[index++] << "</altitudeMode>"
+              << std::endl;
+        fout << "<coordinates>" << std::endl;
+
+        for (int i = 0; i < odom_lla_vec.size(); i++) {
+            fout << odom_lla_vec.at(i)[1] << ',' << odom_lla_vec.at(i)[0] << ','
+                  << odom_lla_vec.at(i)[2] << std::endl;
+        }
+
+        fout << "</coordinates>" << std::endl;
+        fout << "</LineString></Placemark>" << std::endl;
+        fout << "</Document></kml>" << std::endl;
+    }
+    fout.close();
+
+    fout.open(save_dir_str + "gnss_trajectry.kml");
+    if (gnss_lla_vec.size() > 0 && fout.is_open()) {
+
+        fout.precision(15);
+        int index = 0;
+        fout << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" << std::endl;
+        fout << "<kml xmlns=\"http://www.opengis.net/kml/2.2\">" << std::endl;
+        fout << "<Document>" << std::endl;
+        fout << "<name>"
+              << "GPS Trajectory"
+              << "</name>" << std::endl;
+        fout << "<description>"
+              << "GPS Trajectory"
+              << "</description>" << std::endl;
+
+        fout << "<Style id=\"" << kml_config_parameter[index++] << "\">" << std::endl;
+        fout << "<LineStyle>" << std::endl;
+        fout << "<color>"
+              << "7fFF00FF"
+              << "</color>" << std::endl;
+        fout << "<width>" << kml_config_parameter[index++] << "</width>" << std::endl;
+        fout << "</LineStyle>" << std::endl;
+        fout << "<PolyStyle>" << std::endl;
+        fout << "<color>"
+              << "7fFF00FF"
+              << "</color>" << std::endl;
+        fout << "</PolyStyle>" << std::endl;
+        fout << "</Style>" << std::endl;
+        fout << "<Placemark>" << std::endl;
+        fout << "<styleUrl>" << kml_config_parameter[index++] << "</styleUrl>" << std::endl;
+        fout << "<LineString>" << std::endl;
+        fout << "<extrude>" << kml_config_parameter[index++] << "</extrude>" << std::endl;
+        fout << "<tessellate>" << kml_config_parameter[index++] << "</tessellate>"
+              << std::endl;
+        fout << "<altitudeMode>" << kml_config_parameter[index++] << "</altitudeMode>"
+              << std::endl;
+        fout << "<coordinates>" << std::endl;
+
+        for (int i = 0; i < gnss_lla_vec.size(); i++) {
+            fout << gnss_lla_vec.at(i)[1] << ',' << gnss_lla_vec.at(i)[0] << ','
+                  << gnss_lla_vec.at(i)[2] << std::endl;
+        }
+
+        fout << "</coordinates>" << std::endl;
+        fout << "</LineString></Placemark>" << std::endl;
+        fout << "</Document></kml>" << std::endl;
+    }
+    fout.close();
+    return 0;
+}
+
+int NdtLocalizer::readKMLParameter() {
+    xmlDocPtr pDoc = xmlReadFile((kml_config_file_).c_str(),
+                                 "UTF-8", XML_PARSE_RECOVER);
+    if (NULL == pDoc) {
+        std::cout << "open config.xml error\n" << std::endl;
+        return 1;
+    }
+
+    xmlNodePtr pRoot = xmlDocGetRootElement(pDoc);
+    if (NULL == pRoot) {
+        std::cout << "get config.xml root error\n" << std::endl;
+        return 1;
+    }
+
+    xmlNodePtr pFirst = pRoot->children;
+
+    while (NULL != pFirst) {
+        xmlChar *value = NULL;
+        if (!xmlStrcmp(pFirst->name, (const xmlChar *)("style"))) {
+            xmlNodePtr pStyle = pFirst->children;
+            while (NULL != pStyle) {
+                value = xmlNodeGetContent(pStyle);
+                if (xmlStrcmp(pStyle->name, (const xmlChar *)("text"))) {
+                    kml_config_parameter.push_back((char *)value);
+                }
+                pStyle = pStyle->next;
+            }
+        } else if (!xmlStrcmp(pFirst->name, (const xmlChar *)("Placemark"))) {
+            xmlNodePtr pPlacemark = pFirst->children;
+            while (NULL != pPlacemark) {
+                value = xmlNodeGetContent(pPlacemark);
+                if (xmlStrcmp(pPlacemark->name, (const xmlChar *)("text"))) {
+                    kml_config_parameter.push_back((char *)value);
+                }
+                pPlacemark = pPlacemark->next;
+            }
+        } else {
+            value = xmlNodeGetContent(pFirst);
+            if (xmlStrcmp(pFirst->name, (const xmlChar *)("text"))) {
+                kml_config_parameter.push_back((char *)value);
+            }
+        }
+        pFirst = pFirst->next;
+    }
+//    ROS_WARN("KML_CONFIG: %d",kml_config_parameter.size());
+    return 0;
 }
 
 int main(int argc, char **argv) {

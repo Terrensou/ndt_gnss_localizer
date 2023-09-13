@@ -84,6 +84,9 @@ private:
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::NavSatFix, sensor_msgs::Imu, sensor_msgs::PointCloud2> NAVSATFIX_IMU_Cloud_Policy;
     typedef message_filters::Synchronizer<NAVSATFIX_IMU_Cloud_Policy> NAVSATFIX_IMU_Cloud_Sync;
     boost::shared_ptr<NAVSATFIX_IMU_Cloud_Sync> navsatfix_imu_cloud_sync;
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::NavSatFix, sensor_msgs::Imu> NAVSATFIX_IMU_Policy;
+    typedef message_filters::Synchronizer<NAVSATFIX_IMU_Policy> NAVSATFIX_IMU_Sync;
+    boost::shared_ptr<NAVSATFIX_IMU_Sync> navsatfix_imu_sync;
 
     pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt_;
     pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
@@ -135,6 +138,8 @@ private:
     void callback_init_pose(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr & pose_conv_msg_ptr);
     void callback_pointcloud(const sensor_msgs::PointCloud2::ConstPtr & pointcloud2_msg_ptr);
     void callback_gnss(const sensor_msgs::NavSatFix::ConstPtr & navsatfix_msg_ptr);
+    void callback_gnss_pose(
+            const sensor_msgs::NavSatFix::ConstPtr& msgNavsatFix_in, const sensor_msgs::Imu::ConstPtr& msgIMU_in);
     void callback_gnss_init_pose(
             const sensor_msgs::NavSatFix::ConstPtr& msgNavsatFix_in, const sensor_msgs::Imu::ConstPtr& msgIMU_in, const sensor_msgs::PointCloud2::ConstPtr& msgPoints_in);
 
@@ -142,6 +147,7 @@ private:
                               std_srvs::Empty::Response &res);
     bool save_path(std_srvs::Empty::Request &req,
                std_srvs::Empty::Response &res);
+    bool save_path2geojson(const std::string save_dir_str);
     bool save_path2tum(const std::string save_dir_str);
     bool save_path2kml(const std::string save_dir_str);
 

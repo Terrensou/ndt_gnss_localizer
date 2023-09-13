@@ -10,7 +10,7 @@ Panels:
         - /PointCloud23
         - /Path1
         - /Path2
-      Splitter Ratio: 0.6958039999008179
+      Splitter Ratio: 0.5159235596656799
     Tree Height: 776
   - Class: rviz/Selection
     Name: Selection
@@ -67,6 +67,8 @@ Visualization Manager:
         All Enabled: true
         base_link:
           Value: true
+        imu_link:
+          Value: true
         map:
           Value: true
         velodyne:
@@ -79,11 +81,12 @@ Visualization Manager:
       Show Axes: true
       Show Names: true
       Tree:
-        map:
-          base_link:
+        base_link:
+          imu_link:
             velodyne:
               {}
-          world:
+        world:
+          map:
             {}
       Update Interval: 0
       Value: true
@@ -310,7 +313,7 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Angle: 0.005000079050660133
+      Angle: 0.010000078938901424
       Class: rviz/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
@@ -320,7 +323,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 27.150903701782227
+      Scale: 33.59993362426758
       Target Frame: base_link
       Value: TopDownOrtho (rviz)
       X: 1.6733235120773315

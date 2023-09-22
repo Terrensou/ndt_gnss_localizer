@@ -18,6 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
         pcl_ros
         message_generation
         std_srvs
+        geodesy
         )
 
 generate_messages(
@@ -69,3 +70,6 @@ target_link_libraries(ndt_localizer_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(ndt_gnss_localizer_node nodes/gnss_ndt.cpp include/gnssTools.hpp)
 target_link_libraries(ndt_gnss_localizer_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+add_executable(odometry_to_path_node nodes/odometry_to_path.cpp include/gnssTools.hpp)
+target_link_libraries(odometry_to_path_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})

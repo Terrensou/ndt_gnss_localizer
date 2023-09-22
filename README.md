@@ -16,7 +16,7 @@ A demo video on MulRan dataset:
 
 ### SAve Path
 rosservice call /ndt_localizer/reset_gnss_init
-rosservice call /ndt_localizer/save_odom_path
+rosservice call /ndt_localizer/save_path
 
 
 ### Prepare you pcd map and rosbag

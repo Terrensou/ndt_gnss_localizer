@@ -1,32 +1,25 @@
 #pragma once
 
-#include <chrono>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <sstream>
 #include <fstream>
 #include <string>
-#include <boost/filesystem.hpp>
 #include <ros/ros.h>
 
 #include <diagnostic_msgs/DiagnosticArray.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <nav_msgs/Odometry.h>
-#include <nav_msgs/Path.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/NavSatStatus.h>
 #include <std_msgs/Float32.h>
 #include <std_srvs/Empty.h>
-
-#include <libxml/parser.h>
-#include <libxml/tree.h>
-#include <libxml/xmlmemory.h>
-#include <libxml/xmlstring.h>
-#include <libxml/xpath.h>
+#include <geodesy/utm.h>
+#include <geographic_msgs/GeoPoint.h>
 
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -76,7 +69,6 @@ private:
     ros::Publisher gnss_initial_pose_pub_;
 
     ros::ServiceServer reset_gnss_init_pose_srv_;
-    ros::ServiceServer save_path_srv_;
 
     message_filters::Subscriber<sensor_msgs::Imu> imu_sub_;
     message_filters::Subscriber<sensor_msgs::NavSatFix> gnss_sub_;
@@ -84,9 +76,6 @@ private:
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::NavSatFix, sensor_msgs::Imu, sensor_msgs::PointCloud2> NAVSATFIX_IMU_Cloud_Policy;
     typedef message_filters::Synchronizer<NAVSATFIX_IMU_Cloud_Policy> NAVSATFIX_IMU_Cloud_Sync;
     boost::shared_ptr<NAVSATFIX_IMU_Cloud_Sync> navsatfix_imu_cloud_sync;
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::NavSatFix, sensor_msgs::Imu> NAVSATFIX_IMU_Policy;
-    typedef message_filters::Synchronizer<NAVSATFIX_IMU_Policy> NAVSATFIX_IMU_Sync;
-    boost::shared_ptr<NAVSATFIX_IMU_Sync> navsatfix_imu_sync;
 
     pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt_;
     pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
@@ -99,17 +88,11 @@ private:
     Eigen::Matrix4f pre_trans, delta_trans;
     bool init_pose = false;
     bool gnss_pose = false;
-    nav_msgs::Path odom_path;
-    nav_msgs::Path gnss_path;
-    std::vector<Eigen::Vector3d> gnss_lla_vec;
-    std::vector<Eigen::Vector3d> odom_lla_vec;
 
     std::string base_frame_;
     std::string map_frame_;
     std::string save_path_dir_;
     std::string kml_config_file_;
-
-    std::vector<std::string> kml_config_parameter;
 
     // init guess for ndt
     geometry_msgs::PoseWithCovarianceStamped                       initial_pose_cov_msg_;
@@ -127,7 +110,7 @@ private:
     bool get_transform(const std::string & target_frame, const std::string & source_frame,
                        const geometry_msgs::TransformStamped::Ptr & transform_stamped_ptr,
                        const ros::Time & time_stamp);
-    bool get_transform(const std::string & target_frame, 
+    bool get_transform(const std::string & target_frame,
                        const std::string & source_frame,
                        const geometry_msgs::TransformStamped::Ptr & transform_stamped_ptr);
     void publish_tf(const std::string & frame_id, const std::string & child_frame_id,
@@ -137,25 +120,15 @@ private:
     void callback_maplla(const sensor_msgs::NavSatFix::ConstPtr & navsat_msg_ptr);
     void callback_init_pose(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr & pose_conv_msg_ptr);
     void callback_pointcloud(const sensor_msgs::PointCloud2::ConstPtr & pointcloud2_msg_ptr);
-    void callback_gnss(const sensor_msgs::NavSatFix::ConstPtr & navsatfix_msg_ptr);
-    void callback_gnss_pose(
-            const sensor_msgs::NavSatFix::ConstPtr& msgNavsatFix_in, const sensor_msgs::Imu::ConstPtr& msgIMU_in);
     void callback_gnss_init_pose(
             const sensor_msgs::NavSatFix::ConstPtr& msgNavsatFix_in, const sensor_msgs::Imu::ConstPtr& msgIMU_in, const sensor_msgs::PointCloud2::ConstPtr& msgPoints_in);
 
     bool reset_gnss_init_pose(std_srvs::Empty::Request &req,
                               std_srvs::Empty::Response &res);
-    bool save_path(std_srvs::Empty::Request &req,
-               std_srvs::Empty::Response &res);
-    bool save_path2geojson(const std::string save_dir_str);
-    bool save_path2tum(const std::string save_dir_str);
-    bool save_path2kml(const std::string save_dir_str);
 
-    void publish_path(
-            const geometry_msgs::PoseStamped pose);
     void publish_navsatfix(
-            const geometry_msgs::PoseStamped pose, const bool is_fixed);
-
-    int readKMLParameter();
+            const geometry_msgs::PoseWithCovarianceStamped pose, const bool is_fixed);
+    void publish_odom(
+            const geometry_msgs::PoseWithCovarianceStamped pose);
 
 };// NdtLocalizer Core

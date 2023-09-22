@@ -20,8 +20,8 @@ MapLoader::MapLoader(ros::NodeHandle &nh){
     std::string pcd_file_path, map_topic, map_lla_topic;
     nh.param<std::string>("pcd_path", pcd_file_path, "");
     nh.param<std::string>("pcd_lla_path", map_lla_file, "");
-    nh.param<std::string>("map_topic", map_topic, "point_map");
-    nh.param<std::string>("map_lla_topic", map_lla_topic, "map_lla");
+    nh.param<std::string>("map_topic", map_topic, "/ndt_gnss_localizer/point_map");
+    nh.param<std::string>("map_lla_topic", map_lla_topic, "/ndt_gnss_localizer/map_lla");
 
     init_tf_params(nh);
 

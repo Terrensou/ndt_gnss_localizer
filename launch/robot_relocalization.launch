@@ -1,0 +1,26 @@
+<launch>
+
+  <rosparam command="load" file="$(find ndt_localizer)/cfgs/robot_relocalization.yaml" />
+  <!-- Topics -->
+  <!-- <param name="/use_sim_time" value="true" /> -->
+
+  <arg name="save_path_dir" default="$(find ndt_localizer)/path/" />
+  <arg name="kml_config_file" default="$(find ndt_localizer)/cfgs/kml_config.xml" />
+
+  <include file="$(find ndt_localizer)/launch/static_gnss_tf.launch" />
+  <include file="$(find ndt_localizer)/launch/map_gnss_loader.launch" />
+  <include file="$(find ndt_localizer)/launch/points_downsample.launch" />
+
+  <node pkg="ndt_localizer" type="ndt_gnss_localizer_node" name="ndt_gnss_localizer_node" output="log">
+  </node>
+
+<!--  <include file="$(find ndt_localizer)/launch/lexus.launch" />-->
+  <!-- Robot relocalization -->
+  <node pkg="robot_localization" type="ekf_localization_node" name="ekf_localization">
+  </node>
+  <node pkg="ndt_localizer" type="odometry_to_path_node" name="odometry_to_path">
+    <param name="save_path_dir" value="$(arg save_path_dir)" />
+    <param name="kml_config_file" value="$(arg kml_config_file)" />
+  </node>
+
+</launch>

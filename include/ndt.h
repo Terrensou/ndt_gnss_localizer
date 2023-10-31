@@ -49,6 +49,7 @@ public:
 private:
     ros::NodeHandle nh_, private_nh_;
     GNSSTools gnssTools;
+    geodesy::UTMPoint origin_utm;
 
     ros::Subscriber initial_pose_sub_;
     ros::Subscriber map_points_sub_;
@@ -65,7 +66,8 @@ private:
     ros::Publisher odom_pub_;
     ros::Publisher path_enu_pub_;
     ros::Publisher gnss_path_enu_pub_;
-    ros::Publisher navsatfix_pub_;
+    ros::Publisher navsatfix_lla_pub_;
+    ros::Publisher navsatfix_utm_pub_;
     ros::Publisher gnss_initial_pose_pub_;
 
     ros::ServiceServer reset_gnss_init_pose_srv_;
@@ -91,11 +93,12 @@ private:
 
     std::string base_frame_;
     std::string map_frame_;
+    std::string world_frame_;
     std::string save_path_dir_;
     std::string kml_config_file_;
 
     // init guess for ndt
-    geometry_msgs::PoseWithCovarianceStamped                       initial_pose_cov_msg_;
+    geometry_msgs::PoseWithCovarianceStamped initial_pose_cov_msg_;
 
     std::mutex ndt_map_mtx_;
 

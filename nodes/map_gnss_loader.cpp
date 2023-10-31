@@ -72,17 +72,6 @@ sensor_msgs::PointCloud2 MapLoader::TransformMap(sensor_msgs::PointCloud2 & in){
 
     SaveMap(transformed_pc_ptr);
 
-    Eigen::Vector3d enu;
-    enu.setIdentity();
-    enu = Eigen::Vector3d(tf_x_, tf_y_, tf_z_);
-    Eigen::Vector3d ecef = gnssTools.ENU2ECEF(enu);
-    Eigen::Vector3d lla = gnssTools.ECEF2LLA(ecef);
-
-
-    map_lla_msg.longitude = lla(1);
-    map_lla_msg.latitude = lla(0);
-    map_lla_msg.altitude = lla(2);
-    
     sensor_msgs::PointCloud2 output_msg;
     pcl::toROSMsg(*transformed_pc_ptr, output_msg);
     return output_msg;
@@ -127,18 +116,69 @@ sensor_msgs::PointCloud2 MapLoader::CreatePcd()
         getline(originStream, st);
         splitString(st, sv);
 
-        longitude = boost::numeric_cast<double>(strtof64(sv[0].c_str(), &ptr_t));
-        latitude = boost::numeric_cast<double>(strtof64(sv[1].c_str(), &ptr_t));
+        latitude = boost::numeric_cast<double>(strtof64(sv[0].c_str(), &ptr_t));
+        longitude = boost::numeric_cast<double>(strtof64(sv[1].c_str(), &ptr_t));
         altitude = boost::numeric_cast<double>(strtof64(sv[2].c_str(), &ptr_t));
 
-        map_lla_vector = Eigen::Vector3d(longitude, latitude, altitude);
-        gnssTools.lla_origin_ = map_lla_vector;
+        map_lla_msg.longitude = longitude;
+        map_lla_msg.latitude = latitude;
+        map_lla_msg.altitude = altitude;
+
+        geographic_msgs::GeoPoint pLLA;
+        pLLA.latitude = latitude;
+        pLLA.longitude = longitude;
+        pLLA.altitude = altitude;
+        geodesy::UTMPoint pUTM;
+        geodesy::fromMsg(pLLA, pUTM);
+
+        // publish
+        geometry_msgs::PoseStamped map_pose_stamped_msg;
+        map_pose_stamped_msg.header.stamp = ros::Time::now();
+        map_pose_stamped_msg.header.frame_id = map_frame_;
+        map_pose_stamped_msg.pose.position.x = pUTM.easting;
+        map_pose_stamped_msg.pose.position.y = pUTM.northing;
+        map_pose_stamped_msg.pose.position.z = pUTM.altitude;
+
+        map_pose_stamped_msg.pose.orientation.x = 0;
+        map_pose_stamped_msg.pose.orientation.y = 0;
+        map_pose_stamped_msg.pose.orientation.z = 0;
+        map_pose_stamped_msg.pose.orientation.w = 1;
+
+//        std::cout << "lat: " << latitude << "  ,lon: " << longitude << "   ; x: " << pUTM.easting << " , y: " << pUTM.northing << std::endl;
+
+
+        map_frame_ = "map";
+        world_frame_ = "world";
+        publish_map_tf(world_frame_, map_frame_, map_pose_stamped_msg);
+//        publish_tf(map_frame_, world_frame_, map_pose_stamped_msg);
 
     } else {
         ROS_ERROR("Can not get global map LLA.");
     }
 
 	return pcd;
+}
+
+void MapLoader::publish_map_tf(
+        const std::string &frame_id, const std::string &child_frame_id,
+        const geometry_msgs::PoseStamped &pose_msg) {
+    geometry_msgs::TransformStamped transform_stamped;
+    transform_stamped.header.frame_id = frame_id;
+    transform_stamped.child_frame_id = child_frame_id;
+    transform_stamped.header.stamp = pose_msg.header.stamp;
+
+    transform_stamped.transform.translation.x = pose_msg.pose.position.x;
+    transform_stamped.transform.translation.y = pose_msg.pose.position.y;
+    transform_stamped.transform.translation.z = pose_msg.pose.position.z;
+
+    tf2::Quaternion tf_quaternion;
+    tf2::fromMsg(pose_msg.pose.orientation, tf_quaternion);
+    transform_stamped.transform.rotation.x = tf_quaternion.x();
+    transform_stamped.transform.rotation.y = tf_quaternion.y();
+    transform_stamped.transform.rotation.z = tf_quaternion.z();
+    transform_stamped.transform.rotation.w = tf_quaternion.w();
+
+    tf2_broadcaster_.sendTransform(transform_stamped);
 }
 
 

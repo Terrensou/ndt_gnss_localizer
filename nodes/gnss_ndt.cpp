@@ -7,6 +7,8 @@ static std::string GNSS_TOPIC;
 static std::string IMU_TOPIC;
 bool delete_no_fixed = false;
 bool publish_tf_flag = true;
+bool map_loaded_flag = false;
+
 
 NdtLocalizer::NdtLocalizer(ros::NodeHandle &nh, ros::NodeHandle &private_nh) : nh_(nh), private_nh_(private_nh),
                                                                                tf2_listener_(tf2_buffer_) {
@@ -21,8 +23,10 @@ NdtLocalizer::NdtLocalizer(ros::NodeHandle &nh, ros::NodeHandle &private_nh) : n
     transform_probability_pub_ = nh_.advertise<std_msgs::Float32>("transform_probability", 10);
     iteration_num_pub_ = nh_.advertise<std_msgs::Float32>("iteration_num", 10);
     diagnostics_pub_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("diagnostics", 10);
-    odom_pub_ = nh_.advertise<nav_msgs::Odometry>("/ndt_gnss_localizer/Odom", 10);
-    navsatfix_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/ndt_gnss_localizer/Navsatfix", 10, true);
+    // orgina point UTM + ENU position
+    odom_pub_ = nh_.advertise<nav_msgs::Odometry>("/ndt/Odom", 10);
+    navsatfix_utm_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/ndt/utm", 10, true);
+    navsatfix_lla_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/ndt/lla", 10, true);
     gnss_initial_pose_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("initialpose", 10, true);
 
     // Subscribers
@@ -106,7 +110,7 @@ bool NdtLocalizer::reset_gnss_init_pose(std_srvs::Empty::Request &req,
 void NdtLocalizer::callback_gnss_init_pose(
         const sensor_msgs::NavSatFix::ConstPtr &msgNavsatFix_in, const sensor_msgs::Imu::ConstPtr &msgIMU_in,
         const sensor_msgs::PointCloud2::ConstPtr &msgPoints_in) {
-    if (!gnss_pose) {
+    if (!gnss_pose && map_loaded_flag) {
 
         geometry_msgs::PoseWithCovarianceStamped::Ptr mapTF_imu_pose_msg_ptr(
                 new geometry_msgs::PoseWithCovarianceStamped);
@@ -229,15 +233,26 @@ void NdtLocalizer::callback_pointsmap(
 void NdtLocalizer::callback_maplla(const sensor_msgs::NavSatFix::ConstPtr &navsat_msg_ptr) {
     Eigen::Vector3d map_lla_vector = Eigen::Vector3d(navsat_msg_ptr->latitude, navsat_msg_ptr->longitude,
                                                      navsat_msg_ptr->altitude);
-
     gnssTools.lla_origin_ = map_lla_vector;
 
+    geographic_msgs::GeoPoint pLLA;
+    pLLA.latitude = map_lla_vector(0);
+    pLLA.longitude = map_lla_vector(1);
+    pLLA.altitude = map_lla_vector(2);
+    geodesy::UTMPoint pUTM;
+    geodesy::fromMsg(pLLA, pUTM);
+    origin_utm = pUTM;
+
     ROS_WARN("Map ENU original LLA is: lat:%f lon:%f alt:%f", map_lla_vector(0), map_lla_vector(1), map_lla_vector(2));
+    map_loaded_flag = true;
 }
 
 
 void NdtLocalizer::callback_pointcloud(
         const sensor_msgs::PointCloud2::ConstPtr &sensor_points_sensorTF_msg_ptr) {
+    if (!map_loaded_flag) {
+        return;
+    }
     const auto exe_start_time = std::chrono::system_clock::now();
     // mutex Map
     std::lock_guard<std::mutex> lock(ndt_map_mtx_);
@@ -392,6 +407,7 @@ void NdtLocalizer::callback_pointcloud(
     }
 
     if (publish_tf_flag) {
+//        ROS_WARN("publish_tf_flag");
         publish_tf(map_frame_, base_frame_, result_pose_stamped_msg);
     }
 
@@ -449,6 +465,8 @@ void NdtLocalizer::callback_pointcloud(
 void NdtLocalizer::init_params() {
 
     private_nh_.getParam("base_frame", base_frame_);
+    private_nh_.getParam("map_frame", map_frame_);
+    private_nh_.getParam("world_frame", world_frame_);
     ROS_INFO("base_frame_id: %s", base_frame_.c_str());
 
     double trans_epsilon = ndt_.getTransformationEpsilon();
@@ -460,8 +478,6 @@ void NdtLocalizer::init_params() {
     private_nh_.getParam("step_size", step_size);
     private_nh_.getParam("resolution", resolution);
     private_nh_.getParam("max_iterations", max_iterations);
-
-    map_frame_ = "map";
 
     ndt_.setTransformationEpsilon(trans_epsilon);
     ndt_.setStepSize(step_size);
@@ -579,70 +595,66 @@ void NdtLocalizer::publish_tf(
 
 void NdtLocalizer::publish_navsatfix(
         const geometry_msgs::PoseWithCovarianceStamped pose, const bool is_fixed) {
-    Eigen::Vector3d enu;
-    enu.setIdentity();
-    enu = Eigen::Vector3d(pose.pose.pose.position.x,
-                          pose.pose.pose.position.y,
-                          pose.pose.pose.position.z);
-    Eigen::Vector3d ecef = gnssTools.ENU2ECEF(enu);
-    Eigen::Vector3d lla = gnssTools.ECEF2LLA(ecef);
 
-    ROS_INFO("Lidar Odom current LLA position: lat: %f, lon: %f, alt: %f.", lla(0), lla(1), lla(2));
+    sensor_msgs::NavSatFix utm_msg_out;
+    utm_msg_out.header.frame_id = "lidar_link";
+    utm_msg_out.header.stamp = pose.header.stamp;
 
-    sensor_msgs::NavSatFix msg_out;
-//    msg_out.header.frame_id = "lidar_link";
-    msg_out.header.frame_id = pose.header.frame_id;
-    msg_out.header.stamp = pose.header.stamp;
+    utm_msg_out.longitude = origin_utm.easting + pose.pose.pose.position.x;
+    utm_msg_out.latitude = origin_utm.northing + pose.pose.pose.position.y;
+    utm_msg_out.altitude = origin_utm.altitude + pose.pose.pose.position.z;
+    navsatfix_utm_pub_.publish(utm_msg_out);
 
-    msg_out.latitude = lla(0);
-    msg_out.longitude = lla(1);
-    msg_out.altitude = lla(2);
+    geodesy::UTMPoint pUTM;
+    pUTM.easting = utm_msg_out.latitude;
+    pUTM.northing = utm_msg_out.longitude;
+    pUTM.altitude = utm_msg_out.altitude;
+    pUTM.zone = origin_utm.zone;
+    pUTM.band = origin_utm.band;
+    auto pLLA = geodesy::toMsg(pUTM);
 
-    msg_out.position_covariance[0] = pose.pose.covariance[0];
-    msg_out.position_covariance[4] = pose.pose.covariance[7];
-    msg_out.position_covariance[8] = pose.pose.covariance[14];
-    msg_out.position_covariance_type = sensor_msgs::NavSatFix::COVARIANCE_TYPE_APPROXIMATED;
+    ROS_INFO("Lidar Odom current LLA position: lat: %f, lon: %f, alt: %f.", pLLA.latitude, pLLA.longitude, pLLA.altitude);
+
+    sensor_msgs::NavSatFix lla_msg_out;
+    lla_msg_out.header.frame_id = "lidar_link";
+    lla_msg_out.header.stamp = pose.header.stamp;
+
+    lla_msg_out.latitude = pLLA.latitude;
+    lla_msg_out.longitude = pLLA.longitude;
+    lla_msg_out.altitude = pLLA.altitude;
+
+    lla_msg_out.position_covariance[0] = pose.pose.covariance[0];
+    lla_msg_out.position_covariance[4] = pose.pose.covariance[7];
+    lla_msg_out.position_covariance[8] = pose.pose.covariance[14];
+    lla_msg_out.position_covariance_type = sensor_msgs::NavSatFix::COVARIANCE_TYPE_APPROXIMATED;
 
     if (is_fixed) {
-        msg_out.status.status = sensor_msgs::NavSatStatus::STATUS_FIX;
+        lla_msg_out.status.status = sensor_msgs::NavSatStatus::STATUS_FIX;
     } else {
-        msg_out.status.status = sensor_msgs::NavSatStatus::STATUS_NO_FIX;
+        lla_msg_out.status.status = sensor_msgs::NavSatStatus::STATUS_NO_FIX;
     }
 
-    navsatfix_pub_.publish(msg_out);
+    navsatfix_lla_pub_.publish(lla_msg_out);
 }
 
 void NdtLocalizer::publish_odom(
         const geometry_msgs::PoseWithCovarianceStamped pose) {
-    Eigen::Vector3d enu;
-    enu.setIdentity();
-    enu = Eigen::Vector3d(pose.pose.pose.position.x,
-                          pose.pose.pose.position.y,
-                          pose.pose.pose.position.z);
-    Eigen::Vector3d ecef = gnssTools.ENU2ECEF(enu);
-    Eigen::Vector3d lla = gnssTools.ECEF2LLA(ecef);
 
     nav_msgs::Odometry msg_out;
 //    msg_out.header.frame_id = "lidar_link";
-    msg_out.header.frame_id = pose.header.frame_id;
-    msg_out.child_frame_id = base_frame_;
+    msg_out.header.frame_id = world_frame_;
+    msg_out.child_frame_id = "lidar_link";
     msg_out.header.stamp = pose.header.stamp;
 
-    geographic_msgs::GeoPoint pLLA;
-    pLLA.latitude = lla(0);
-    pLLA.longitude = lla(1);
-    pLLA.altitude = lla(2);
-    geodesy::UTMPoint pUTM;
-    geodesy::fromMsg(pLLA, pUTM);
-
-    msg_out.pose.pose.position.x = pUTM.easting;
-    msg_out.pose.pose.position.y = pUTM.northing;
-    msg_out.pose.pose.position.z = pUTM.altitude;
+    msg_out.pose.pose.position.x = origin_utm.easting + pose.pose.pose.position.x;
+    msg_out.pose.pose.position.y = origin_utm.northing + pose.pose.pose.position.y;
+    msg_out.pose.pose.position.z = origin_utm.altitude + pose.pose.pose.position.z;
 
     msg_out.pose.pose.orientation = pose.pose.pose.orientation;
     msg_out.pose.covariance = pose.pose.covariance;
 
     odom_pub_.publish(msg_out);
+
 }
 
 

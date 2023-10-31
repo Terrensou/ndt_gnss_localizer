@@ -5,7 +5,10 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Path1
+        - /TF1
+        - /TF1/Frames1
+        - /Lidar NDT Odom Path1
+        - /RobotModel1
       Splitter Ratio: 0.5159235596656799
     Tree Height: 776
   - Class: rviz/Selection
@@ -26,7 +29,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: PointCloud2
+    SyncSource: PointCloud Map
   - Class: jsk_rviz_plugin/YesNoButton
     Name: YesNoButton
 Preferences:
@@ -60,19 +63,23 @@ Visualization Manager:
       Filter (whitelist): ""
       Frame Timeout: 15
       Frames:
-        All Enabled: true
+        All Enabled: false
+        antenna_link:
+          Value: false
         base_link:
           Value: true
         imu_link:
-          Value: true
-        integrated_nav_odom:
-          Value: true
+          Value: false
+        lidar_link:
+          Value: false
         map:
-          Value: true
+          Value: false
+        odom:
+          Value: false
         velodyne:
-          Value: true
+          Value: false
         world:
-          Value: true
+          Value: false
       Marker Scale: 5
       Name: TF
       Show Arrows: true
@@ -80,13 +87,16 @@ Visualization Manager:
       Show Names: true
       Tree:
         world:
-          integrated_nav_odom:
-            {}
           map:
+            {}
+          odom:
             base_link:
               imu_link:
-                velodyne:
+                antenna_link:
                   {}
+                velodyne:
+                  lidar_link:
+                    {}
       Update Interval: 0
       Value: true
     - Buffer length: 100
@@ -149,7 +159,7 @@ Visualization Manager:
       Length: 0.30000001192092896
       Line Style: Lines
       Line Width: 0.029999999329447746
-      Name: Path
+      Name: EKF fusion Path
       Offset:
         X: 0
         Y: 0
@@ -159,7 +169,7 @@ Visualization Manager:
       Radius: 0.029999999329447746
       Shaft Diameter: 0.10000000149011612
       Shaft Length: 0.10000000149011612
-      Topic: /ndt_gnss_localizer/Path_EKF
+      Topic: /ndt/ekf/path
       Unreliable: false
       Value: true
     - Alpha: 1
@@ -172,7 +182,7 @@ Visualization Manager:
       Length: 0.30000001192092896
       Line Style: Lines
       Line Width: 0.029999999329447746
-      Name: Path
+      Name: GNSS Path
       Offset:
         X: 0
         Y: 0
@@ -182,7 +192,7 @@ Visualization Manager:
       Radius: 0.029999999329447746
       Shaft Diameter: 0.10000000149011612
       Shaft Length: 0.10000000149011612
-      Topic: /ndt_gnss_localizer/Path_GNSS
+      Topic: /gnss/path
       Unreliable: false
       Value: true
     - Alpha: 1
@@ -195,7 +205,7 @@ Visualization Manager:
       Length: 0.30000001192092896
       Line Style: Lines
       Line Width: 0.029999999329447746
-      Name: Path
+      Name: Lidar NDT Odom Path
       Offset:
         X: 0
         Y: 0
@@ -205,7 +215,30 @@ Visualization Manager:
       Radius: 0.029999999329447746
       Shaft Diameter: 0.10000000149011612
       Shaft Length: 0.10000000149011612
-      Topic: /ndt_gnss_localizer/Path_NDT
+      Topic: /ndt/path
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 0; 126; 255
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: GNSS Path Ref
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /gnss/path2
       Unreliable: false
       Value: true
     - Alpha: 0.5
@@ -224,7 +257,7 @@ Visualization Manager:
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: PointCloud2
+      Name: PointCloud Map
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
@@ -252,7 +285,7 @@ Visualization Manager:
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: PointCloud2
+      Name: Lidar PointCloud
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
@@ -280,7 +313,7 @@ Visualization Manager:
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: PointCloud2
+      Name: Filter PointCloud
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
@@ -335,7 +368,7 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Angle: 0.010000078938901424
+      Angle: 0
       Class: rviz/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
@@ -345,11 +378,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 59.822879791259766
+      Scale: 35.36161804199219
       Target Frame: base_link
       Value: TopDownOrtho (rviz)
-      X: -0.24883797764778137
-      Y: -0.737680971622467
+      X: 0.11443361639976501
+      Y: 0.25288015604019165
     Saved: ~
 Window Geometry:
   Displays:

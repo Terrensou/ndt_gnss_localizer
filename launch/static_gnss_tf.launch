@@ -7,5 +7,8 @@
     <node pkg="tf2_ros" type="static_transform_publisher" name="localizer_to_imu_link" args="0.02 0.42 0.71 0.009540 0.001611 0.711320 0.702801 imu_link velodyne"/>
 
 <!--    <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map" args="0 0 0 0 0 0 map world" />-->
-    <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map" args="0 0 0 0 0 0 world map" />
+<!--    <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map" args="0 0 0 0 0 0 world base_link" />-->
+<!--    <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom" args="0 0 0 0 0 0 map car/ndt/ekf_global_odom" />-->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="odom_to_base_link" args="0 0 0 0 0 0 car/ndt/ekf_global_odom base_link" />
+<!--    <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_align" args="0 0 0 0 0 0 car/base_link base_link" />-->
 </launch>

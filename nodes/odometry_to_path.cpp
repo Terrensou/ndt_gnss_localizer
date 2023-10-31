@@ -26,25 +26,31 @@ public:
 
         private_nh_.getParam("save_path_dir", save_path_dir_);
         private_nh_.getParam("kml_config_file", kml_config_file_);
+        private_nh_.getParam("map_frame", map_frame_);
+        private_nh_.getParam("world_frame", world_frame_);
         map_lla_sub_ = nh_.subscribe("/ndt_localizer/map_lla", 1, &Path_Generator::callback_maplla, this,
                                      ros::TransportHints().tcpNoDelay());
-        odom_efk_sub_ = nh_.subscribe("/odometry/filtered", 1, &Path_Generator::generatePathFromEKFOdometry, this,
+        odom_efk_sub_ = nh_.subscribe("/ndt/ekf/global_odom", 1, &Path_Generator::generatePathFromEKFOdometry, this,
                                       ros::TransportHints().tcpNoDelay());
-        odom_ndt_sub_ = nh_.subscribe("/ndt_gnss_localizer/Odom", 1, &Path_Generator::generatePathFromNDTOdometry, this,
+        odom_ndt_sub_ = nh_.subscribe("/ndt/Odom", 1, &Path_Generator::generatePathFromNDTOdometry, this,
                                       ros::TransportHints().tcpNoDelay());
         odom_gnss_sub_ = nh_.subscribe("/integrated_nav/Odom", 1, &Path_Generator::generatePathFromGNSSOdometry, this,
                                        ros::TransportHints().tcpNoDelay());
+        odom2_gnss_sub_ = nh_.subscribe("/integrated_nav/Odom_2", 1, &Path_Generator::generatePathFromGNSSOdometry2, this,
+                                       ros::TransportHints().tcpNoDelay());
 
-        path_ekf_pub_ = nh_.advertise<nav_msgs::Path>("/ndt_gnss_localizer/Path_EKF", 10, true);
-        path_ndt_pub_ = nh_.advertise<nav_msgs::Path>("/ndt_gnss_localizer/Path_NDT", 10, true);
-        path_gnss_pub_ = nh_.advertise<nav_msgs::Path>("/ndt_gnss_localizer/Path_GNSS", 10, true);
+        path_ekf_pub_ = nh_.advertise<nav_msgs::Path>("/ndt/ekf/path", 10, true);
+        path_ndt_pub_ = nh_.advertise<nav_msgs::Path>("/ndt/path", 10, true);
+        path_gnss_pub_ = nh_.advertise<nav_msgs::Path>("/gnss/path", 10, true);
+        path2_gnss_pub_ = nh_.advertise<nav_msgs::Path>("/gnss/path2", 10, true);
 
         save_path_srv_ = nh.advertiseService("ndt_localizer/save_path",
                                              &Path_Generator::save_path, this);
 
-        odom_ekf_path.header.frame_id = map_frame_;
-        odom_ndt_path.header.frame_id = map_frame_;
-        odom_gnss_path.header.frame_id = map_frame_;
+        odom_ekf_path.header.frame_id = world_frame_;
+        odom_ndt_path.header.frame_id = world_frame_;
+        odom_gnss_path.header.frame_id = world_frame_;
+        odom2_gnss_path.header.frame_id = world_frame_;
 
         readKMLParameter();
     }
@@ -64,6 +70,8 @@ public:
         band = pUTM.band;
         zone = pUTM.zone;
 
+//        std::cout << "map :lat: " << pLLA.latitude << "  ,long: " << pLLA.longitude << "  ,alt: " << pLLA.altitude << std::endl;
+
         init_flag = true;
     }
 
@@ -75,7 +83,7 @@ public:
 
         geometry_msgs::PoseStamped pose_stamped;
         pose_stamped.header = msg_in->header;
-        pose_stamped.header.frame_id = map_frame_;
+        pose_stamped.header.frame_id = msg_in->child_frame_id;
 
         pose_stamped.pose.orientation = msg_in->pose.pose.orientation;
 
@@ -113,7 +121,7 @@ public:
 
         geometry_msgs::PoseStamped pose_stamped;
         pose_stamped.header = msg_in->header;
-        pose_stamped.header.frame_id = map_frame_;
+        pose_stamped.header.frame_id = msg_in->child_frame_id;
 
         pose_stamped.pose.orientation = msg_in->pose.pose.orientation;
 
@@ -151,7 +159,46 @@ public:
 
         geometry_msgs::PoseStamped pose_stamped;
         pose_stamped.header = msg_in->header;
-        pose_stamped.header.frame_id = map_frame_;
+        pose_stamped.header.frame_id = msg_in->child_frame_id;
+
+        pose_stamped.pose.orientation = msg_in->pose.pose.orientation;
+
+        geodesy::UTMPoint pUTM;
+        pUTM.easting = msg_in->pose.pose.position.x;
+        pUTM.northing = msg_in->pose.pose.position.y;
+        pUTM.altitude = msg_in->pose.pose.position.z;
+        pUTM.zone = zone;
+        pUTM.band = band;
+        auto pLLA = geodesy::toMsg(pUTM);
+//        std::cout << pUTM << std::endl;
+        std::cout << "lat: " << pLLA.latitude << "  ,long: " << pLLA.longitude << "  ,alt: " << pLLA.altitude << std::endl;
+        Eigen::Vector3d lla;
+        lla.setIdentity();
+        lla = Eigen::Vector3d(pLLA.latitude,
+                              pLLA.longitude,
+                              pLLA.altitude);
+        Eigen::Vector3d ecef = gnssTools.LLA2ECEF(lla);
+        Eigen::Vector3d enu = gnssTools.ECEF2ENU(ecef);
+        pose_stamped.pose.position.x = enu(0);
+        pose_stamped.pose.position.y = enu(1);
+        pose_stamped.pose.position.z = enu(2);
+        std::cout << "east: " << enu(0) << "  ,north: " << enu(1) << "  ,alt: " << enu(2) << std::endl;
+        gnss_lla_vec.push_back(lla);
+
+        odom_gnss_path.poses.push_back(pose_stamped);
+
+        path_gnss_pub_.publish(odom_gnss_path);
+
+    }
+
+    void generatePathFromGNSSOdometry2(const nav_msgs::Odometry::ConstPtr &msg_in) {
+        if (!init_flag) {
+            return;
+        }
+
+        geometry_msgs::PoseStamped pose_stamped;
+        pose_stamped.header = msg_in->header;
+        pose_stamped.header.frame_id =  msg_in->child_frame_id;
 
         pose_stamped.pose.orientation = msg_in->pose.pose.orientation;
 
@@ -174,11 +221,11 @@ public:
         pose_stamped.pose.position.y = enu(1);
         pose_stamped.pose.position.z = enu(2);
 
-        gnss_lla_vec.push_back(lla);
+        gnss2_lla_vec.push_back(lla);
 
-        odom_gnss_path.poses.push_back(pose_stamped);
+        odom2_gnss_path.poses.push_back(pose_stamped);
 
-        path_gnss_pub_.publish(odom_gnss_path);
+        path2_gnss_pub_.publish(odom2_gnss_path);
 
     }
 
@@ -322,7 +369,6 @@ public:
             fout.close();
         } else {
             ROS_WARN("Lidar Path is Empty!");
-//            return false;
         }
 
         fout.open(save_dir_str + "gnss_enu_tum.txt");
@@ -342,6 +388,25 @@ public:
             fout.close();
         } else {
             ROS_WARN("GNSS Path is Empty!");
+        }
+
+        fout.open(save_dir_str + "gnss2_enu_tum.txt");
+        if (odom2_gnss_path.poses.size() > 0 && fout.is_open()) {
+            fout.precision(15);
+            for (auto i = odom2_gnss_path.poses.cbegin(); i != odom2_gnss_path.poses.cend(); ++i) {
+                fout << i->header.stamp.toSec() << " ";
+                auto x = i->pose.position.x;
+                auto y = i->pose.position.y;
+                auto z = i->pose.position.z;
+                auto qx = i->pose.orientation.x;
+                auto qy = i->pose.orientation.y;
+                auto qz = i->pose.orientation.z;
+                auto qw = i->pose.orientation.w;
+                fout << x << " " << y << " " << z << " " << qx << " " << qy << " " << qz << " " << qw << std::endl;
+            }
+            fout.close();
+        } else {
+            ROS_WARN("GNSS2 Path is Empty!");
         }
 
         fout.open(save_dir_str + "ekf_enu_tum.txt");
@@ -427,6 +492,55 @@ public:
 
         fout.open(save_dir_str + "gnss_trajectry.kml");
         if (gnss_lla_vec.size() > 0 && fout.is_open()) {
+
+            fout.precision(15);
+            int index = 0;
+            fout << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" << std::endl;
+            fout << "<kml xmlns=\"http://www.opengis.net/kml/2.2\">" << std::endl;
+            fout << "<Document>" << std::endl;
+            fout << "<name>"
+                 << "GNSS Trajectory"
+                 << "</name>" << std::endl;
+            fout << "<description>"
+                 << "GNSS Trajectory in base_link"
+                 << "</description>" << std::endl;
+
+            fout << "<Style id=\"" << kml_config_parameter[index++] << "\">" << std::endl;
+            fout << "<LineStyle>" << std::endl;
+            fout << "<color>"
+                 << "7f19FF00"
+                 << "</color>" << std::endl;
+            fout << "<width>" << kml_config_parameter[index++] << "</width>" << std::endl;
+            fout << "</LineStyle>" << std::endl;
+            fout << "<PolyStyle>" << std::endl;
+            fout << "<color>"
+                 << "7f19FF00"
+                 << "</color>" << std::endl;
+            fout << "</PolyStyle>" << std::endl;
+            fout << "</Style>" << std::endl;
+            fout << "<Placemark>" << std::endl;
+            fout << "<styleUrl>" << kml_config_parameter[index++] << "</styleUrl>" << std::endl;
+            fout << "<LineString>" << std::endl;
+            fout << "<extrude>" << kml_config_parameter[index++] << "</extrude>" << std::endl;
+            fout << "<tessellate>" << kml_config_parameter[index++] << "</tessellate>"
+                 << std::endl;
+            fout << "<altitudeMode>" << kml_config_parameter[index++] << "</altitudeMode>"
+                 << std::endl;
+            fout << "<coordinates>" << std::endl;
+
+            for (int i = 0; i < gnss_lla_vec.size(); i++) {
+                fout << gnss_lla_vec.at(i)[1] << ',' << gnss_lla_vec.at(i)[0] << ','
+                     << gnss_lla_vec.at(i)[2] << std::endl;
+            }
+
+            fout << "</coordinates>" << std::endl;
+            fout << "</LineString></Placemark>" << std::endl;
+            fout << "</Document></kml>" << std::endl;
+        }
+        fout.close();
+
+        fout.open(save_dir_str + "gnss2_trajectry.kml");
+        if (gnss2_lla_vec.size() > 0 && fout.is_open()) {
 
             fout.precision(15);
             int index = 0;
@@ -584,23 +698,30 @@ private:
     tf2_ros::TransformListener tf2_listener_;
 
     std::string map_frame_ = "map";
+    std::string world_frame_ = "world";
     std::string save_path_dir_;
     std::string kml_config_file_;
 
     ros::Publisher path_ekf_pub_;
     ros::Publisher path_ndt_pub_;
     ros::Publisher path_gnss_pub_;
+    ros::Publisher path2_gnss_pub_;
+
     ros::Subscriber map_lla_sub_;
     ros::Subscriber odom_efk_sub_;
     ros::Subscriber odom_ndt_sub_;
     ros::Subscriber odom_gnss_sub_;
+    ros::Subscriber odom2_gnss_sub_;
+
     ros::ServiceServer save_path_srv_;
 
     nav_msgs::Path odom_ekf_path;
     nav_msgs::Path odom_ndt_path;
     nav_msgs::Path odom_gnss_path;
+    nav_msgs::Path odom2_gnss_path;
 
     std::vector<Eigen::Vector3d> gnss_lla_vec;
+    std::vector<Eigen::Vector3d> gnss2_lla_vec;
     std::vector<Eigen::Vector3d> ndt_lla_vec;
     std::vector<Eigen::Vector3d> ekf_lla_vec;
     std::vector<std::string> kml_config_parameter;

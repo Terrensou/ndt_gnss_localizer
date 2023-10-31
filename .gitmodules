@@ -1,0 +1,4 @@
+[submodule "ThirdParty/geographiclib-2.3"]
+	path = ThirdParty/geographiclib-2.3
+	url = https://github.com/geographiclib/geographiclib/
+	branch = release

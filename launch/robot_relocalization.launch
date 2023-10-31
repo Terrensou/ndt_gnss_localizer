@@ -15,8 +15,10 @@
   </node>
 
 <!--  <include file="$(find ndt_localizer)/launch/lexus.launch" />-->
+<!--  <node pkg="tf2_ros" type="static_transform_publisher" name="ekf_to_map" args="0 0 0 0 0 0 base_link velodyne"/>-->
   <!-- Robot relocalization -->
   <node pkg="robot_localization" type="ekf_localization_node" name="ekf_localization">
+    <remap from="/odometry/filtered" to="/ndt/ekf/global_odom" />
   </node>
   <node pkg="ndt_localizer" type="odometry_to_path_node" name="odometry_to_path">
     <param name="save_path_dir" value="$(arg save_path_dir)" />
